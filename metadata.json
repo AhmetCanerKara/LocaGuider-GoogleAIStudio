@@ -1,0 +1,7 @@
+{
+  "name": "LocaGuider",
+  "description": "LocaGuider (LCG-3501) is a mobile-based city guidance and discovery application helping users find nearby places, events, and routes based on their context.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
