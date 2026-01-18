@@ -9,6 +9,7 @@ interface LeafletMapProps {
   places?: Place[];
   recenterTrigger?: number;
   onMarkerClick?: (place: Place) => void;
+  onMapMove?: (bounds: { south: number, west: number, north: number, east: number }, zoom: number) => void;
 }
 
 // 1. Define SVG strings for categories to avoid external dependencies
@@ -108,7 +109,36 @@ const MapClickHandler = ({ onMapClick }: { onMapClick: () => void }) => {
   return null;
 };
 
-export const LeafletMap: React.FC<LeafletMapProps> = ({ center, zoom = 14, places = [], recenterTrigger = 0, onMarkerClick }) => {
+// Handle Map Events (Move, Zoom)
+const MapEvents = ({ onMapMove }: { onMapMove?: (bounds: any, zoom: number) => void }) => {
+  const map = useMap();
+
+  const handleMove = () => {
+    if (onMapMove) {
+      const zoom = map.getZoom();
+      const bounds = map.getBounds();
+      onMapMove({
+        south: bounds.getSouth(),
+        west: bounds.getWest(),
+        north: bounds.getNorth(),
+        east: bounds.getEast()
+      }, zoom);
+    }
+  };
+
+  useMapEvents({
+    moveend: handleMove,
+  });
+
+  // Trigger once on mount to load initial data
+  useEffect(() => {
+    handleMove();
+  }, []);
+
+  return null;
+};
+
+export const LeafletMap: React.FC<LeafletMapProps> = ({ center, zoom = 14, places = [], recenterTrigger = 0, onMarkerClick, onMapMove }) => {
   return (
     <div className="w-full h-full relative z-0">
       <MapContainer 
@@ -147,6 +177,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({ center, zoom = 14, place
         />
         
         <MapClickHandler onMapClick={() => onMarkerClick && onMarkerClick(null as any)} />
+        
+        <MapEvents onMapMove={onMapMove} />
       </MapContainer>
     </div>
   );

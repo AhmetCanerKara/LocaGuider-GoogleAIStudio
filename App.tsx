@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { TabView, AppScreenState, User, GeoPoint, Place } from './types';
 import { BottomNav } from './components/BottomNav';
 import { DEFAULT_LOCATION, MOCK_PLACES as STATIC_PLACES } from './constants';
-import { fetchNearbyPlaces } from './services/overpassService';
+import { fetchPlacesInBounds } from './services/overpassService';
 import { Splash } from './components/Splash';
 import { Onboarding } from './components/Onboarding';
 import { Auth } from './components/Auth';
@@ -27,7 +27,10 @@ const App: React.FC = () => {
   const [isLoadingPlaces, setIsLoadingPlaces] = useState(false);
   const [recenterTrigger, setRecenterTrigger] = useState(0);
 
-  // Helper to get location and then fetch real places
+  // Request ID to handle race conditions and debounce
+  const requestIdRef = useRef<number>(0);
+
+  // Helper to get location
   const handleLocateUser = () => {
     if (!navigator.geolocation) {
       alert("Geolocation is not supported by your browser");
@@ -37,41 +40,69 @@ const App: React.FC = () => {
     setIsLocating(true);
 
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
+      (position) => {
         const newLocation = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude
         };
         setCurrentLocation(newLocation);
         setRecenterTrigger(prev => prev + 1);
-        
         setIsLocating(false);
-
-        // Fetch Real Data from OSM
-        setIsLoadingPlaces(true);
-        const realPlaces = await fetchNearbyPlaces(newLocation);
-        setPlaces(realPlaces);
-        setIsLoadingPlaces(false);
+        // Note: We do NOT fetch places here. The map will move, triggering handleMapMoveEnd.
       },
       (error) => {
-        console.error("Error getting location:", error);
+        console.warn("Error getting location:", error.message);
         setIsLocating(false);
-        // Fallback: Try fetching places around default location if user location fails
-        // or just keep static data
+        // Fallback: Just ensure we are at default or stay put.
+        // User can manually move map to trigger fetch.
+        if (places === STATIC_PLACES) {
+           setCurrentLocation(DEFAULT_LOCATION);
+           setRecenterTrigger(prev => prev + 1);
+        }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
     );
   };
 
+  // Handle Map Move / Zoom events with Debounce and Logic
+  const handleMapMoveEnd = useCallback((bounds: { south: number, west: number, north: number, east: number }, zoom: number) => {
+    const currentRequestId = Date.now();
+    requestIdRef.current = currentRequestId;
+
+    // RULE: If zoom < 14, clear POIs (Performance & UX)
+    if (zoom < 14) {
+      setPlaces([]);
+      return;
+    }
+
+    // Debounce: Wait 700ms before fetching
+    setTimeout(async () => {
+      // If a new request started during this wait, ignore this one
+      if (requestIdRef.current !== currentRequestId) return;
+
+      setIsLoadingPlaces(true);
+      try {
+        const fetchedPlaces = await fetchPlacesInBounds(bounds.south, bounds.west, bounds.north, bounds.east);
+        
+        // Check again before updating state
+        if (requestIdRef.current === currentRequestId) {
+          setPlaces(fetchedPlaces);
+        }
+      } catch (error) {
+        console.error("Error fetching places:", error);
+      } finally {
+        if (requestIdRef.current === currentRequestId) {
+          setIsLoadingPlaces(false);
+        }
+      }
+    }, 700);
+  }, []);
+
   // Initialize App
   useEffect(() => {
     const initApp = async () => {
-      // Start fetching location immediately in background
       handleLocateUser();
-
-      // Simulate splash screen delay
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
       setAppState('ONBOARDING');
     };
 
@@ -107,7 +138,6 @@ const App: React.FC = () => {
   };
 
   const handleMarkerClick = (place: Place) => {
-    // If null passed (clicking on map background), close sheet
     if (!place) {
       setSelectedPlace(null);
     } else {
@@ -128,6 +158,7 @@ const App: React.FC = () => {
                  places={places} 
                  recenterTrigger={recenterTrigger}
                  onMarkerClick={handleMarkerClick}
+                 onMapMove={handleMapMoveEnd}
                />
 
                {/* Loading Indicator for Places */}
@@ -178,13 +209,13 @@ const App: React.FC = () => {
                     <h3 className="font-semibold text-lg">Nearby Places</h3>
                     {isLoadingPlaces && <Loader2 size={16} className="animate-spin text-blue-600" />}
                   </div>
-                  <p className="text-gray-500 text-sm">Real places from OpenStreetMap.</p>
+                  <p className="text-gray-500 text-sm">Best places around you.</p>
                   
                   <div className="mt-4 space-y-2">
                     {/* Render fetched places */}
                     {places.length === 0 && !isLoadingPlaces && (
                       <div className="p-4 text-center text-gray-400 text-sm">
-                        No places found nearby. Try moving the map.
+                        {places.length === 0 ? "Move the map to find places." : "No places found nearby."}
                       </div>
                     )}
                     

@@ -1,23 +1,23 @@
-import { GeoPoint, Place, PlaceCategory } from '../types';
+import { Place, PlaceCategory } from '../types';
 
 const OVERPASS_API_URL = 'https://overpass-api.de/api/interpreter';
-const RADIUS = 5000; // 5km radius
 
 // Helper to map OSM tags to our internal categories
 const mapOsmTagToCategory = (tags: any): PlaceCategory => {
   // Food & Drink
   if (tags.amenity === 'cafe') return PlaceCategory.Cafe;
-  if (['restaurant', 'fast_food', 'bar', 'pub', 'food_court', 'ice_cream'].includes(tags.amenity)) return PlaceCategory.Restaurant;
+  if (['restaurant', 'fast_food', 'bar', 'pub', 'food_court', 'ice_cream', 'biergarten'].includes(tags.amenity)) return PlaceCategory.Restaurant;
   
   // Tourism / Culture
-  if (tags.tourism === 'museum' || tags.tourism === 'gallery') return PlaceCategory.Museum;
-  if (tags.leisure === 'park' || tags.leisure === 'garden') return PlaceCategory.Park;
+  if (['museum', 'gallery', 'artwork'].includes(tags.tourism)) return PlaceCategory.Museum;
+  if (['park', 'garden', 'playground'].includes(tags.leisure)) return PlaceCategory.Park;
+  if (['attraction', 'viewpoint', 'memorial'].includes(tags.tourism) || tags.historic) return PlaceCategory.Historical;
   
   // Shopping
   if (tags.shop) return PlaceCategory.Shopping;
 
   // Services
-  if (['bank', 'post_office', 'atm', 'clinic', 'dentist'].includes(tags.amenity)) return PlaceCategory.Service;
+  if (['pharmacy', 'bank', 'post_office', 'atm', 'clinic', 'dentist', 'hospital', 'doctors'].includes(tags.amenity)) return PlaceCategory.Service;
 
   return PlaceCategory.Other;
 };
@@ -39,27 +39,30 @@ const getPlaceholderImage = (category: PlaceCategory, id: number | string) => {
       return `https://images.unsplash.com/photo-1518998053901-5348d3969105?auto=format&fit=crop&w=400&q=80&random=${seed}`;
     case PlaceCategory.Park:
       return `https://images.unsplash.com/photo-1496347646636-ea47f7d6b37b?auto=format&fit=crop&w=400&q=80&random=${seed}`;
+    case PlaceCategory.Historical:
+      return `https://images.unsplash.com/photo-1467269204594-9661b134dd2b?auto=format&fit=crop&w=400&q=80&random=${seed}`;
     default:
       return `https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=400&q=80`;
   }
 };
 
-export const fetchNearbyPlaces = async (center: GeoPoint): Promise<Place[]> => {
-  // Construct Overpass QL Query
-  // Added nwr for fast_food, bar, bank and all shops
+export const fetchPlacesInBounds = async (south: number, west: number, north: number, east: number): Promise<Place[]> => {
+  // Construct Overpass QL Query with BBOX
+  // BBOX order in Overpass QL is (south, west, north, east)
   const query = `
-    [out:json][timeout:90];
+    [out:json][timeout:25];
     (
-      nwr["amenity"~"cafe|restaurant|fast_food|bar|bank"](around:${RADIUS},${center.latitude},${center.longitude});
-      nwr["shop"](around:${RADIUS},${center.latitude},${center.longitude});
-      nwr["tourism"="museum"](around:${RADIUS},${center.latitude},${center.longitude});
+      nwr["amenity"~"cafe|restaurant|fast_food|bar|pub|pharmacy|bank|hospital"](${south},${west},${north},${east});
+      nwr["shop"](${south},${west},${north},${east});
+      nwr["tourism"~"museum|attraction|gallery"](${south},${west},${north},${east});
+      nwr["leisure"~"park|garden"](${south},${west},${north},${east});
     );
     out center tags;
   `;
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 95000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
     const response = await fetch(OVERPASS_API_URL, {
       method: 'POST',
@@ -73,8 +76,8 @@ export const fetchNearbyPlaces = async (center: GeoPoint): Promise<Place[]> => {
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      if (response.status === 504 || response.status === 503) {
-        throw new Error("Overpass API is currently busy or timed out.");
+      if (response.status === 504 || response.status === 503 || response.status === 429) {
+        throw new Error("Overpass API is currently busy. Please try again later.");
       }
       throw new Error(`Overpass API Error: ${response.status} ${response.statusText}`);
     }
@@ -96,8 +99,8 @@ export const fetchNearbyPlaces = async (center: GeoPoint): Promise<Place[]> => {
         const category = mapOsmTagToCategory(element.tags);
         const elementId = element.id || Math.random().toString(36).substr(2, 9);
 
-        // Enhance subtitle based on specific tags
-        let subtitle = element.tags.opening_hours ? 'Check opening hours' : undefined;
+        // Enhance subtitle based on tags
+        let subtitle = element.tags.opening_hours ? 'Check hours' : undefined;
         if (element.tags.cuisine) subtitle = `${element.tags.cuisine} • ${subtitle || ''}`;
         else if (element.tags.shop) subtitle = `${element.tags.shop} Store`;
         else if (element.tags.amenity) subtitle = element.tags.amenity.charAt(0).toUpperCase() + element.tags.amenity.slice(1);
@@ -110,17 +113,17 @@ export const fetchNearbyPlaces = async (center: GeoPoint): Promise<Place[]> => {
             latitude: lat,
             longitude: lon
           },
-          description: element.tags.description || undefined,
+          description: element.tags.description || element.tags['addr:street'] || undefined,
           image_url: getPlaceholderImage(category, elementId),
           subtitle: subtitle,
-          rating: 3.0 + (Math.random() * 2.0) // Demo rating 3.0-5.0
+          rating: 3.5 + (Math.random() * 1.5) // Simulated rating
         };
       })
       .filter((p: Place | null) => p !== null);
 
     return places;
   } catch (error) {
-    console.error("Failed to fetch places:", error);
+    console.error("Failed to fetch places from Overpass:", error);
     return [];
   }
 };
