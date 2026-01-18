@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, useMap, useMapEvents, Polyline } from 'react-leaflet';
 import L from 'leaflet';
 import { Place, PlaceCategory } from '../types';
 
@@ -7,6 +7,7 @@ interface LeafletMapProps {
   center: { latitude: number; longitude: number };
   zoom?: number;
   places?: Place[];
+  routeCoords?: [number, number][]; // Array of [lat, lng]
   recenterTrigger?: number;
   onMarkerClick?: (place: Place) => void;
   onMapMove?: (bounds: { south: number, west: number, north: number, east: number }, zoom: number) => void;
@@ -99,6 +100,26 @@ const RecenterAutomatically = ({ lat, lng, trigger }: { lat: number; lng: number
   return null;
 };
 
+// Helper component to fit map to route with Animation
+const RouteFitter = ({ coords }: { coords: [number, number][] }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (coords && coords.length > 1) { // Ensure at least 2 points to form a line
+      const bounds = L.latLngBounds(coords);
+      
+      // Use flyToBounds for smoother animation
+      // Padding Bottom handles the BottomSheet overlay
+      map.flyToBounds(bounds, { 
+        paddingTopLeft: [50, 50],
+        paddingBottomRight: [50, 350], // Extra padding at bottom for sheet
+        duration: 1.5,
+        animate: true
+      });
+    }
+  }, [coords, map]);
+  return null;
+};
+
 // Helper to handle map clicks (close detail sheet)
 const MapClickHandler = ({ onMapClick }: { onMapClick: () => void }) => {
   useMapEvents({
@@ -138,7 +159,15 @@ const MapEvents = ({ onMapMove }: { onMapMove?: (bounds: any, zoom: number) => v
   return null;
 };
 
-export const LeafletMap: React.FC<LeafletMapProps> = ({ center, zoom = 14, places = [], recenterTrigger = 0, onMarkerClick, onMapMove }) => {
+export const LeafletMap: React.FC<LeafletMapProps> = ({ 
+  center, 
+  zoom = 14, 
+  places = [], 
+  routeCoords = [], 
+  recenterTrigger = 0, 
+  onMarkerClick, 
+  onMapMove 
+}) => {
   return (
     <div className="w-full h-full relative z-0">
       <MapContainer 
@@ -152,6 +181,19 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({ center, zoom = 14, place
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         
+        {/* Route Line with Animation Class */}
+        {routeCoords.length > 0 && (
+          <Polyline 
+            positions={routeCoords} 
+            pathOptions={{ className: 'route-line-animated' }}
+            color="#3b82f6" // Blue-500
+            weight={6}
+            opacity={0.9}
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
+
         {/* Current User Location */}
         <Marker position={[center.latitude, center.longitude]} icon={UserIcon} />
 
@@ -176,6 +218,8 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({ center, zoom = 14, place
           trigger={recenterTrigger}
         />
         
+        <RouteFitter coords={routeCoords} />
+
         <MapClickHandler onMapClick={() => onMarkerClick && onMarkerClick(null as any)} />
         
         <MapEvents onMapMove={onMapMove} />

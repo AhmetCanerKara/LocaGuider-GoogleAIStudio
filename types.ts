@@ -57,6 +57,15 @@ export interface User {
   is_guest: boolean;
 }
 
+// Routing Types
+export type TransportMode = 'driving' | 'walking' | 'cycling';
+
+export interface RouteDetails {
+  coordinates: [number, number][];
+  distance: number; // meters
+  duration: number; // seconds
+}
+
 // UI Types
 export type TabView = 'map' | 'nearby' | 'favorites' | 'profile';
 

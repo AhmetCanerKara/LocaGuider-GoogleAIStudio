@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { TabView, AppScreenState, User, GeoPoint, Place } from './types';
+import { TabView, AppScreenState, User, GeoPoint, Place, TransportMode, RouteDetails } from './types';
 import { BottomNav } from './components/BottomNav';
 import { DEFAULT_LOCATION, MOCK_PLACES as STATIC_PLACES } from './constants';
 import { fetchPlacesInBounds } from './services/overpassService';
+import { fetchRoute } from './services/routeService';
 import { Splash } from './components/Splash';
 import { Onboarding } from './components/Onboarding';
 import { Auth } from './components/Auth';
 import { LeafletMap } from './components/LeafletMap';
 import { PlaceDetailSheet } from './components/PlaceDetailSheet';
-import { Navigation, Locate, Calendar, Search, LogOut, Loader2 } from 'lucide-react';
+import { Locate, Search, LogOut, Loader2, XCircle } from 'lucide-react';
 
 const App: React.FC = () => {
   // Application Flow State
@@ -22,6 +23,11 @@ const App: React.FC = () => {
   const [currentLocation, setCurrentLocation] = useState<GeoPoint>(DEFAULT_LOCATION);
   const [places, setPlaces] = useState<Place[]>(STATIC_PLACES);
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
+  
+  // Route State
+  const [routeData, setRouteData] = useState<RouteDetails | null>(null);
+  const [transportMode, setTransportMode] = useState<TransportMode>('driving');
+  const [isRouting, setIsRouting] = useState(false);
   
   const [isLocating, setIsLocating] = useState(false);
   const [isLoadingPlaces, setIsLoadingPlaces] = useState(false);
@@ -98,6 +104,33 @@ const App: React.FC = () => {
     }, 700);
   }, []);
 
+  // Handle Route Request
+  const handleRouteRequest = async (place: Place, mode: TransportMode = 'driving') => {
+    setIsRouting(true);
+    setTransportMode(mode); // Update UI selection immediately
+    
+    try {
+      const details = await fetchRoute(currentLocation, place.location, mode);
+      
+      if (details) {
+        setRouteData(details);
+      } else {
+        alert("Could not calculate route to this location.");
+        setRouteData(null);
+      }
+    } catch (e) {
+      alert("Error connecting to route service.");
+      setRouteData(null);
+    } finally {
+      setIsRouting(false);
+    }
+  };
+
+  const handleClearRoute = () => {
+    setRouteData(null);
+    // Keep selected place, just clear the line
+  };
+
   // Initialize App
   useEffect(() => {
     const initApp = async () => {
@@ -135,13 +168,22 @@ const App: React.FC = () => {
     setAppState('AUTH');
     setActiveTab('map'); 
     setSelectedPlace(null);
+    setRouteData(null);
   };
 
   const handleMarkerClick = (place: Place) => {
     if (!place) {
+      // Clicking map background
+      if (!routeData) {
+        setSelectedPlace(null);
+      }
       setSelectedPlace(null);
+      // Optional: Clear route on background click?
+      // setRouteData(null); 
     } else {
       setSelectedPlace(place);
+      // If we select a new place, clear old route
+      setRouteData(null);
     }
   };
 
@@ -156,6 +198,7 @@ const App: React.FC = () => {
                <LeafletMap 
                  center={currentLocation} 
                  places={places} 
+                 routeCoords={routeData?.coordinates || []}
                  recenterTrigger={recenterTrigger}
                  onMarkerClick={handleMarkerClick}
                  onMapMove={handleMapMoveEnd}
@@ -169,12 +212,26 @@ const App: React.FC = () => {
                  </div>
                )}
 
+               {/* Clear Route Button */}
+               {routeData && (
+                 <button 
+                   onClick={handleClearRoute}
+                   className="absolute top-4 right-4 bg-white p-2 rounded-full shadow-md z-[1000] text-red-500 hover:bg-red-50"
+                 >
+                   <XCircle size={24} />
+                 </button>
+               )}
+
                {/* Place Detail Sheet Overlay */}
                {selectedPlace && (
                  <PlaceDetailSheet 
                    place={selectedPlace} 
                    userLocation={currentLocation}
-                   onClose={() => setSelectedPlace(null)}
+                   onClose={() => { setSelectedPlace(null); setRouteData(null); }}
+                   onRouteClick={(mode) => handleRouteRequest(selectedPlace, mode)}
+                   isRouting={isRouting}
+                   routeDetails={routeData}
+                   selectedMode={transportMode}
                  />
                )}
 
@@ -183,7 +240,7 @@ const App: React.FC = () => {
                 onClick={handleLocateUser}
                 disabled={isLocating}
                 className={`absolute right-6 z-[1000] p-4 rounded-full shadow-lg transition-all duration-300 ${
-                  selectedPlace ? 'bottom-64' : 'bottom-6'
+                  selectedPlace ? 'bottom-[340px]' : 'bottom-6' // Adjust position based on sheet height
                 } ${
                   isLocating ? 'bg-blue-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700'
                 } text-white`}
