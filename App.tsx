@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { TabView, AppScreenState, User, GeoPoint, Place, TransportMode, RouteDetails } from './types';
 import { BottomNav } from './components/BottomNav';
@@ -9,7 +10,8 @@ import { Onboarding } from './components/Onboarding';
 import { Auth } from './components/Auth';
 import { LeafletMap } from './components/LeafletMap';
 import { PlaceDetailSheet } from './components/PlaceDetailSheet';
-import { Locate, Search, LogOut, Loader2, XCircle } from 'lucide-react';
+// Added Heart to the imports from lucide-react
+import { Locate, Search, LogOut, Loader2, XCircle, Heart } from 'lucide-react';
 
 const App: React.FC = () => {
   // Application Flow State
@@ -23,6 +25,7 @@ const App: React.FC = () => {
   const [currentLocation, setCurrentLocation] = useState<GeoPoint>(DEFAULT_LOCATION);
   const [places, setPlaces] = useState<Place[]>(STATIC_PLACES);
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
+  const [currentZoom, setCurrentZoom] = useState<number>(14);
   
   // Route State
   const [routeData, setRouteData] = useState<RouteDetails | null>(null);
@@ -54,13 +57,10 @@ const App: React.FC = () => {
         setCurrentLocation(newLocation);
         setRecenterTrigger(prev => prev + 1);
         setIsLocating(false);
-        // Note: We do NOT fetch places here. The map will move, triggering handleMapMoveEnd.
       },
       (error) => {
         console.warn("Error getting location:", error.message);
         setIsLocating(false);
-        // Fallback: Just ensure we are at default or stay put.
-        // User can manually move map to trigger fetch.
         if (places === STATIC_PLACES) {
            setCurrentLocation(DEFAULT_LOCATION);
            setRecenterTrigger(prev => prev + 1);
@@ -70,27 +70,26 @@ const App: React.FC = () => {
     );
   };
 
-  // Handle Map Move / Zoom events with Debounce and Logic
+  // Handle Map Move / Zoom events
   const handleMapMoveEnd = useCallback((bounds: { south: number, west: number, north: number, east: number }, zoom: number) => {
+    setCurrentZoom(zoom);
     const currentRequestId = Date.now();
     requestIdRef.current = currentRequestId;
 
-    // RULE: If zoom < 14, clear POIs (Performance & UX)
-    if (zoom < 14) {
+    // RULE: If zoom is too low, don't even fetch or display
+    if (zoom < 15.5) {
       setPlaces([]);
       return;
     }
 
-    // Debounce: Wait 700ms before fetching
+    // Debounce: Wait 600ms before fetching
     setTimeout(async () => {
-      // If a new request started during this wait, ignore this one
       if (requestIdRef.current !== currentRequestId) return;
 
       setIsLoadingPlaces(true);
       try {
         const fetchedPlaces = await fetchPlacesInBounds(bounds.south, bounds.west, bounds.north, bounds.east);
         
-        // Check again before updating state
         if (requestIdRef.current === currentRequestId) {
           setPlaces(fetchedPlaces);
         }
@@ -101,25 +100,36 @@ const App: React.FC = () => {
           setIsLoadingPlaces(false);
         }
       }
-    }, 700);
+    }, 600);
   }, []);
 
-  // Handle Route Request
+  // Filter places based on zoom for a cleaner UI (Google Maps logic)
+  const getVisiblePlaces = () => {
+    if (currentZoom < 15.5) return []; // Hide everything at low zoom
+    
+    // At medium zoom, only show high rated places or specific important categories
+    if (currentZoom < 17) {
+      return places
+        .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 15); // Show top 15 most relevant
+    }
+
+    return places; // At high zoom, show everything
+  };
+
   const handleRouteRequest = async (place: Place, mode: TransportMode = 'driving') => {
     setIsRouting(true);
-    setTransportMode(mode); // Update UI selection immediately
+    setTransportMode(mode);
     
     try {
       const details = await fetchRoute(currentLocation, place.location, mode);
-      
       if (details) {
         setRouteData(details);
       } else {
-        alert("Could not calculate route to this location.");
+        alert("Could not calculate route.");
         setRouteData(null);
       }
     } catch (e) {
-      alert("Error connecting to route service.");
       setRouteData(null);
     } finally {
       setIsRouting(false);
@@ -128,101 +138,65 @@ const App: React.FC = () => {
 
   const handleClearRoute = () => {
     setRouteData(null);
-    // Keep selected place, just clear the line
   };
 
-  // Initialize App
   useEffect(() => {
-    const initApp = async () => {
-      handleLocateUser();
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      setAppState('ONBOARDING');
-    };
-
-    initApp();
+    handleLocateUser();
+    setTimeout(() => setAppState('ONBOARDING'), 2000);
   }, []);
 
-  const handleOnboardingComplete = () => {
-    setAppState('AUTH');
-  };
-
-  const handleLoginSuccess = (loggedInUser: User) => {
-    setUser(loggedInUser);
-    setAppState('APP');
-  };
-
+  const handleOnboardingComplete = () => setAppState('AUTH');
+  const handleLoginSuccess = (loggedInUser: User) => { setUser(loggedInUser); setAppState('APP'); };
   const handleGuestAccess = () => {
     setUser({
-      user_id: 'guest',
-      username: 'Guest User',
-      email: '',
-      is_guest: true,
-      created_at: new Date().toISOString(),
-      preferences: { pref_id: 'guest_pref', preferred_categories: [], language: 'en' }
+      user_id: 'guest', username: 'Guest User', email: '', is_guest: true,
+      created_at: new Date().toISOString(), preferences: { pref_id: 'g', preferred_categories: [], language: 'en' }
     });
     setAppState('APP');
   };
 
-  const handleSignOut = () => {
-    setUser(null);
-    setAppState('AUTH');
-    setActiveTab('map'); 
-    setSelectedPlace(null);
-    setRouteData(null);
-  };
+  const handleSignOut = () => { setUser(null); setAppState('AUTH'); setActiveTab('map'); setSelectedPlace(null); setRouteData(null); };
 
   const handleMarkerClick = (place: Place) => {
     if (!place) {
-      // Clicking map background
-      if (!routeData) {
-        setSelectedPlace(null);
-      }
       setSelectedPlace(null);
-      // Optional: Clear route on background click?
-      // setRouteData(null); 
     } else {
       setSelectedPlace(place);
-      // If we select a new place, clear old route
       setRouteData(null);
     }
   };
 
-  // Main App Content Renderer
   const renderAppContent = () => {
     switch (activeTab) {
       case 'map':
         return (
-          <div className="relative w-full h-full bg-slate-100 flex flex-col">
+          <div className="relative w-full h-full bg-[#f8f9fa] flex flex-col">
             <div className="flex-1 relative overflow-hidden">
-               {/* Leaflet Map Integration */}
                <LeafletMap 
                  center={currentLocation} 
-                 places={places} 
+                 places={getVisiblePlaces()} 
                  routeCoords={routeData?.coordinates || []}
                  recenterTrigger={recenterTrigger}
                  onMarkerClick={handleMarkerClick}
                  onMapMove={handleMapMoveEnd}
                />
 
-               {/* Loading Indicator for Places */}
-               {isLoadingPlaces && (
-                 <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-md z-[1000] flex items-center gap-2">
-                   <Loader2 size={16} className="animate-spin text-blue-600" />
-                   <span className="text-xs font-medium text-gray-700">Finding nearby places...</span>
+               {isLoadingPlaces && currentZoom >= 15.5 && (
+                 <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-full shadow-lg border border-gray-100 z-[1000] flex items-center gap-2">
+                   <Loader2 size={14} className="animate-spin text-blue-600" />
+                   <span className="text-[11px] font-bold text-gray-700 tracking-tight">UPDATING MAP...</span>
                  </div>
                )}
 
-               {/* Clear Route Button */}
                {routeData && (
                  <button 
                    onClick={handleClearRoute}
-                   className="absolute top-4 right-4 bg-white p-2 rounded-full shadow-md z-[1000] text-red-500 hover:bg-red-50"
+                   className="absolute top-4 right-4 bg-white p-3 rounded-full shadow-xl z-[1000] text-gray-800 hover:bg-gray-50 active:scale-95 transition-all border border-gray-100"
                  >
-                   <XCircle size={24} />
+                   <XCircle size={22} className="text-red-500" />
                  </button>
                )}
 
-               {/* Place Detail Sheet Overlay */}
                {selectedPlace && (
                  <PlaceDetailSheet 
                    place={selectedPlace} 
@@ -235,15 +209,14 @@ const App: React.FC = () => {
                  />
                )}
 
-               {/* Floating Action Button for Location */}
                <button 
                 onClick={handleLocateUser}
                 disabled={isLocating}
-                className={`absolute right-6 z-[1000] p-4 rounded-full shadow-lg transition-all duration-300 ${
-                  selectedPlace ? 'bottom-[340px]' : 'bottom-6' // Adjust position based on sheet height
+                className={`absolute right-6 z-[1000] p-4 rounded-full shadow-2xl transition-all duration-400 ${
+                  selectedPlace ? 'bottom-[380px]' : 'bottom-6'
                 } ${
-                  isLocating ? 'bg-blue-400 cursor-wait' : 'bg-blue-600 hover:bg-blue-700'
-                } text-white`}
+                  isLocating ? 'bg-blue-400' : 'bg-white text-blue-600 border border-gray-100'
+                }`}
                >
                  <Locate size={24} className={isLocating ? 'animate-spin' : ''} />
                </button>
@@ -261,29 +234,31 @@ const App: React.FC = () => {
              </div>
              
              <div className="space-y-4">
-               <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                  <div className="flex justify-between items-center">
-                    <h3 className="font-semibold text-lg">Nearby Places</h3>
+               <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100">
+                  <div className="flex justify-between items-center mb-1">
+                    <h3 className="font-bold text-lg">Nearby Hits</h3>
                     {isLoadingPlaces && <Loader2 size={16} className="animate-spin text-blue-600" />}
                   </div>
-                  <p className="text-gray-500 text-sm">Best places around you.</p>
+                  <p className="text-gray-400 text-sm mb-4">Trending spots in your area.</p>
                   
-                  <div className="mt-4 space-y-2">
-                    {/* Render fetched places */}
+                  <div className="space-y-3">
                     {places.length === 0 && !isLoadingPlaces && (
-                      <div className="p-4 text-center text-gray-400 text-sm">
-                        {places.length === 0 ? "Move the map to find places." : "No places found nearby."}
+                      <div className="p-10 text-center">
+                        <p className="text-gray-400 text-sm">Zoom in on the map to find places.</p>
                       </div>
                     )}
                     
-                    {places.slice(0, 10).map(place => (
-                      <div key={place.id} onClick={() => { setActiveTab('map'); setSelectedPlace(place); }} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100">
-                        <div className="w-12 h-12 bg-gray-200 rounded-md overflow-hidden flex-shrink-0">
+                    {places.slice(0, 15).sort((a,b) => (b.rating||0) - (a.rating||0)).map(place => (
+                      <div key={place.id} onClick={() => { setActiveTab('map'); setSelectedPlace(place); }} className="flex items-center gap-4 p-3 bg-gray-50 rounded-2xl cursor-pointer hover:bg-gray-100 active:scale-[0.98] transition-all">
+                        <div className="w-14 h-14 bg-gray-200 rounded-xl overflow-hidden flex-shrink-0 shadow-sm">
                           <img src={place.image_url} alt={place.name} className="w-full h-full object-cover" />
                         </div>
-                        <div>
-                          <h4 className="font-medium text-sm line-clamp-1">{place.name}</h4>
-                          <span className="text-xs text-blue-600">{place.category}</span>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-bold text-sm text-gray-900 truncate">{place.name}</h4>
+                          <div className="flex items-center gap-2">
+                             <span className="text-[10px] font-bold text-blue-500 uppercase">{place.category}</span>
+                             {place.rating && <span className="text-[10px] font-bold text-amber-500">★ {place.rating.toFixed(1)}</span>}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -296,80 +271,53 @@ const App: React.FC = () => {
         return (
           <div className="flex-1 flex items-center justify-center bg-gray-50">
              <div className="text-center p-8">
-               <h2 className="text-xl font-semibold text-gray-700">Your Favorites</h2>
-               <p className="text-gray-500 mt-2">Save places and events to access them quickly.</p>
-               {user?.is_guest && (
-                 <p className="text-xs text-orange-500 mt-4 bg-orange-50 p-2 rounded">
-                   Sign in to sync your favorites across devices.
-                 </p>
-               )}
+               <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center text-rose-500 mx-auto mb-4">
+                  <Heart size={40} fill="currentColor" />
+               </div>
+               <h2 className="text-xl font-bold text-gray-800">Your Favorites</h2>
+               <p className="text-gray-400 mt-2 text-sm">Saved places will appear here.</p>
              </div>
           </div>
         );
       case 'profile':
         return (
           <div className="flex-1 p-4 bg-gray-50">
-             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center mb-6">
-               <div className="w-20 h-20 bg-blue-100 rounded-full mx-auto flex items-center justify-center text-blue-600 text-xl font-bold mb-4">
+             <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 text-center mb-6">
+               <div className="w-20 h-20 bg-blue-600 rounded-3xl mx-auto flex items-center justify-center text-white text-2xl font-bold mb-4 shadow-lg shadow-blue-200">
                  {user?.username.substring(0, 2).toUpperCase()}
                </div>
-               <h2 className="text-xl font-bold">{user?.username}</h2>
-               <p className="text-gray-500">{user?.is_guest ? 'Guest Account' : user?.email}</p>
+               <h2 className="text-xl font-extrabold text-gray-900">{user?.username}</h2>
+               <p className="text-gray-400 text-sm">{user?.is_guest ? 'Guest Account' : user?.email}</p>
              </div>
 
-             <div className="space-y-2">
-               <button className="w-full text-left bg-white p-4 rounded-lg shadow-sm border border-gray-100 font-medium text-gray-700">
-                 Preferences
-               </button>
-               <button className="w-full text-left bg-white p-4 rounded-lg shadow-sm border border-gray-100 font-medium text-gray-700">
-                 Language Settings
-               </button>
-               <button 
-                onClick={handleSignOut}
-                className="w-full text-left bg-red-50 p-4 rounded-lg shadow-sm border border-red-100 font-medium text-red-600 flex items-center gap-2"
-               >
-                 <LogOut size={18} />
-                 Sign Out
+             <div className="space-y-3">
+               <button className="w-full text-left bg-white p-4 rounded-2xl shadow-sm border border-gray-100 font-bold text-gray-700">Account Settings</button>
+               <button className="w-full text-left bg-white p-4 rounded-2xl shadow-sm border border-gray-100 font-bold text-gray-700">App Preferences</button>
+               <button onClick={handleSignOut} className="w-full text-left bg-red-50 p-4 rounded-2xl font-bold text-red-600 flex items-center gap-3">
+                 <LogOut size={20} /> Sign Out
                </button>
              </div>
           </div>
         );
-      default:
-        return null;
+      default: return null;
     }
   };
 
-  // Root Render Logic
-  if (appState === 'SPLASH') {
-    return <Splash />;
-  }
-
-  if (appState === 'ONBOARDING') {
-    return <Onboarding onComplete={handleOnboardingComplete} />;
-  }
-
-  if (appState === 'AUTH') {
-    return <Auth onLoginSuccess={handleLoginSuccess} onGuestAccess={handleGuestAccess} />;
-  }
+  if (appState === 'SPLASH') return <Splash />;
+  if (appState === 'ONBOARDING') return <Onboarding onComplete={handleOnboardingComplete} />;
+  if (appState === 'AUTH') return <Auth onLoginSuccess={handleLoginSuccess} onGuestAccess={handleGuestAccess} />;
 
   return (
-    <div className="flex flex-col h-full w-full max-w-md mx-auto bg-white shadow-2xl overflow-hidden relative">
-      <header className="bg-white px-4 py-3 border-b border-gray-100 flex items-center justify-between z-20">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">
-            LG
-          </div>
-          <span className="font-bold text-lg text-gray-800 tracking-tight">LocaGuider</span>
-        </div>
-        <div className="text-xs font-medium px-2 py-1 bg-green-100 text-green-700 rounded-md">
-          {user?.is_guest ? 'Guest' : 'Online'}
+    <div className="flex flex-col h-full w-full max-md mx-auto bg-white shadow-2xl overflow-hidden relative">
+      <header className="bg-white px-5 py-4 border-b border-gray-50 flex items-center justify-between z-20">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black text-xs">LG</div>
+          <span className="font-black text-xl text-gray-900 tracking-tighter">LocaGuider</span>
         </div>
       </header>
-
       <main className="flex-1 flex flex-col overflow-hidden relative">
         {renderAppContent()}
       </main>
-
       <BottomNav currentTab={activeTab} onTabChange={setActiveTab} />
     </div>
   );

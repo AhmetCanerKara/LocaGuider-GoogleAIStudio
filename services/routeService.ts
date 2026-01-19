@@ -12,10 +12,7 @@ export const fetchRoute = async (
   mode: TransportMode = 'driving'
 ): Promise<RouteDetails | null> => {
   try {
-    // Correct mapping for OSRM Public API
-    // driving -> driving
-    // walking -> walking
-    // cycling -> cycling
+    // Map internal mode to OSRM profile
     let profile = 'driving';
     if (mode === 'walking') profile = 'walking';
     if (mode === 'cycling') profile = 'cycling';
@@ -25,9 +22,7 @@ export const fetchRoute = async (
     
     const response = await fetch(url);
     if (!response.ok) {
-      // If specific profile fails, try fallback to driving to avoid app breaking
       if (profile !== 'driving') {
-        console.warn(`Route profile '${profile}' failed, falling back to driving.`);
         return fetchRoute(start, end, 'driving');
       }
       throw new Error('Failed to fetch route');
@@ -42,8 +37,13 @@ export const fetchRoute = async (
     const route = data.routes[0];
 
     // OSRM returns GeoJSON coordinates [lon, lat], but Leaflet needs [lat, lon]
-    const coordinates = route.geometry.coordinates.map((coord: number[]) => [coord[1], coord[0]]);
+    // Filter out potential 0,0 points to avoid map jumping to Atlantic Ocean
+    const coordinates = route.geometry.coordinates
+      .map((coord: number[]) => [coord[1], coord[0]])
+      .filter((coord: number[]) => coord[0] !== 0 && coord[1] !== 0);
     
+    if (coordinates.length < 2) return null;
+
     return {
       coordinates,
       distance: route.distance, // meters

@@ -23,14 +23,12 @@ export const PlaceDetailSheet: React.FC<PlaceDetailSheetProps> = ({
 }) => {
   if (!place) return null;
 
-  // Initial fetch on mount or place change (default to driving)
   useEffect(() => {
      if (!routeDetails && !isRouting) {
        onRouteClick('driving');
      }
-  }, [place?.id]); // Only when ID changes
+  }, [place?.id]);
 
-  // Helper to format time (seconds -> min/hr)
   const formatDuration = (seconds: number) => {
     const mins = Math.round(seconds / 60);
     if (mins < 60) return `${mins} min`;
@@ -39,111 +37,93 @@ export const PlaceDetailSheet: React.FC<PlaceDetailSheetProps> = ({
     return `${hrs} hr ${remainingMins} min`;
   };
 
-  // Helper to format distance (meters -> km/m)
   const formatDistance = (meters: number) => {
     if (meters < 1000) return `${Math.round(meters)} m`;
     return `${(meters / 1000).toFixed(1)} km`;
   };
 
   const handleStartNavigation = () => {
-    // Universal link for Google Maps / Apple Maps
-    // We can specify mode in google maps url: dir_action=navigate&travelmode=driving|walking|bicycling
     let gMode = 'driving';
     if (selectedMode === 'walking') gMode = 'walking';
     if (selectedMode === 'cycling') gMode = 'bicycling';
-
     const url = `https://www.google.com/maps/dir/?api=1&destination=${place.location.latitude},${place.location.longitude}&travelmode=${gMode}`;
     window.open(url, '_blank');
   };
 
-  const getIcon = () => {
-    switch (place.category) {
-      case PlaceCategory.Cafe: return <Coffee size={24} className="text-blue-600" />;
-      case PlaceCategory.Restaurant: return <Utensils size={24} className="text-orange-600" />;
-      case PlaceCategory.Event: return <Calendar size={24} className="text-purple-600" />;
-      case PlaceCategory.Shopping: return <ShoppingBag size={24} className="text-teal-600" />;
-      case PlaceCategory.Service: return <Briefcase size={24} className="text-slate-600" />;
-      case PlaceCategory.Museum: return <Landmark size={24} className="text-rose-600" />;
-      default: return <Star size={24} className="text-gray-600" />;
-    }
-  };
-
   return (
-    <div className="absolute bottom-0 left-0 w-full z-[1001] animate-in slide-in-from-bottom duration-300">
-       {/* Card Container */}
-       <div className="bg-white rounded-t-3xl shadow-[0_-5px_25px_-5px_rgba(0,0,0,0.1)] p-6 pb-8 border-t border-gray-100">
+    <div className="absolute bottom-0 left-0 w-full z-[1001] animate-in slide-in-from-bottom duration-400 ease-out">
+       <div className="bg-white rounded-t-[32px] shadow-[0_-8px_30px_rgba(0,0,0,0.08)] p-6 pb-10 border-t border-gray-50">
          
-         {/* Drag Handle */}
-         <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-4"></div>
+         <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5"></div>
 
-         {/* Header with Title & Close */}
-         <div className="flex justify-between items-start mb-4">
-           <div>
-             <h2 className="text-xl font-bold text-gray-900 leading-tight">{place.name}</h2>
-             <p className="text-sm text-gray-500 mt-1">{place.category} {place.subtitle && `• ${place.subtitle}`}</p>
+         <div className="flex justify-between items-start mb-5">
+           <div className="flex-1 pr-4">
+             <h2 className="text-2xl font-bold text-gray-900 tracking-tight leading-tight">{place.name}</h2>
+             <div className="flex items-center gap-2 mt-1.5">
+               <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded uppercase tracking-wider">{place.category}</span>
+               {place.subtitle && <span className="text-xs text-gray-400">• {place.subtitle}</span>}
+               {place.rating && <span className="text-xs font-bold text-amber-500 flex items-center">★ {place.rating.toFixed(1)}</span>}
+             </div>
            </div>
-           <button onClick={onClose} className="p-2 bg-gray-50 rounded-full hover:bg-gray-100">
-             <X size={20} className="text-gray-500" />
+           <button onClick={onClose} className="p-2.5 bg-gray-50 rounded-full hover:bg-gray-100 transition-colors">
+             <X size={20} className="text-gray-400" />
            </button>
          </div>
 
-         {/* Transport Modes Tabs */}
-         <div className="flex p-1 bg-gray-100 rounded-xl mb-6">
+         <div className="flex p-1 bg-gray-100/80 rounded-2xl mb-6">
             <button 
               onClick={() => onRouteClick('driving')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${selectedMode === 'driving' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}
+              className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl text-[11px] font-bold transition-all ${selectedMode === 'driving' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              <Car size={16} />
-              Drive
+              <Car size={18} />
+              DRIVE
             </button>
             <button 
               onClick={() => onRouteClick('walking')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${selectedMode === 'walking' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}
+              className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl text-[11px] font-bold transition-all ${selectedMode === 'walking' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              <Footprints size={16} />
-              Walk
+              <Footprints size={18} />
+              WALK
             </button>
             <button 
               onClick={() => onRouteClick('cycling')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${selectedMode === 'cycling' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}
+              className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl text-[11px] font-bold transition-all ${selectedMode === 'cycling' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
-              <Bike size={16} />
-              Bike
+              <Bike size={18} />
+              BIKE
             </button>
          </div>
 
-         {/* Route Info Stats */}
-         <div className="flex items-end gap-2 mb-6">
+         <div className="flex items-center gap-3 mb-8 h-10 px-1">
             {isRouting ? (
-               <div className="flex items-center gap-2 text-gray-500 h-10">
-                 <Loader2 size={20} className="animate-spin" />
-                 <span>Calculating route...</span>
+               <div className="flex items-center gap-3 text-blue-500 font-medium">
+                 <Loader2 size={22} className="animate-spin" />
+                 <span className="text-sm">Optimizing path...</span>
                </div>
             ) : routeDetails ? (
-              <>
-                <div className="text-3xl font-bold text-gray-900 leading-none">
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-gray-900">
                   {formatDuration(routeDetails.duration)}
-                </div>
-                <div className="text-lg text-gray-500 font-medium mb-0.5">
+                </span>
+                <span className="text-sm font-semibold text-gray-400">
                   ({formatDistance(routeDetails.distance)})
-                </div>
-              </>
+                </span>
+              </div>
             ) : (
-              <div className="text-gray-400 text-sm">Select a mode to see route</div>
+              <span className="text-gray-400 text-sm">Select travel mode</span>
             )}
          </div>
 
-         {/* Main Action Buttons */}
-         <div className="flex gap-3">
+         <div className="flex gap-4">
            <button 
              onClick={handleStartNavigation}
-             className="flex-1 bg-blue-600 text-white py-3.5 rounded-xl font-semibold shadow-lg shadow-blue-200 flex items-center justify-center gap-2 active:scale-95 transition-transform"
+             className="flex-[3] bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all"
            >
-             <Navigation size={18} />
+             <Navigation size={20} fill="currentColor" />
              Start Navigation
            </button>
-           <button className="px-5 bg-white border border-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 flex items-center justify-center active:scale-95 transition-transform">
-             <Heart size={20} />
+           <button className="flex-1 bg-gray-50 text-gray-600 rounded-2xl font-bold flex items-center justify-center hover:bg-gray-100 active:scale-[0.98] transition-all border border-gray-100">
+             <Heart size={22} />
            </button>
          </div>
 
